@@ -32,20 +32,16 @@ int main(void) {
 
     clockInit();
 
+    // registerTask(task0, 0, 1);
+    // registerTask(task1, 0, 1);
+
     WDTCTL = WDTPW | WDTSSEL__ACLK | WDTTMSEL | WDTIS__512 | WDTCNTCL;
 
     // enable wdt interruptions
     SFRIFG1 &= ~WDTIFG;
     SFRIE1 |= WDTIE;
 
-    /*
-    // save scheduler stack pointer
-    asm("movx.a SP, %0" : "+m" (schedStackPtr));
-
-    asm("movx.a %0, SP" :: "m" (tasks[currentTask].stackPtr));
-    asm("popm.a #12, R15");
-    asm("reti");
-    */
+    schedulerStart();
 
     return 0;
 }
