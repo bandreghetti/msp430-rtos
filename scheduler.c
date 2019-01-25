@@ -2,6 +2,7 @@
 #include <msp430.h>
 #include <stdint.h>
 
+
 uint16_t registeredTasks = 0;
 uint16_t *schedStackPtr;
 sTask runningTask;
@@ -24,38 +25,46 @@ void fifoPut(sTask task, uint8_t niceness) {
     }
     sFIFO *fifo = &fifoList[niceness];
     uint8_t nextTail = (fifo->tail + 1) % MAXFIFOSIZE;
-    if (nextTail == fifo->head) {
+    if (fifo->size >= MAXFIFOSIZE) {
         return;
     }
+    fifo->tasks[fifo->tail] = task;
     fifo->tail = nextTail;
-    fifo->tasks[nextTail] = task;
     fifo->size += 1;
 }
 
 void fifoPop(uint8_t niceness, sTask *task) {
     if (niceness < 0 || niceness > MAX_NICENESS) {
+        printf("erro niceness");
         return;
     }
     sFIFO *fifo = &fifoList[niceness];
-    if (fifo->head == fifo->tail) {
+    uint8_t nextHead = (fifo->head + 1) % MAXFIFOSIZE;
+    if (fifo->size<=0) {
         return;
     }
-    *task = fifo->tasks[fifo->head];
-    fifo->head = (fifo->head + 1) % MAXFIFOSIZE;
+    uint8_t head = fifo->head;
+    sTask taskT = fifo->tasks[head];
+    *task = taskT;
+    fifo->head = nextHead;
     fifo->size -= 1;
 }
 
-void exitTask() { runningTask.finished = 1; }
+void exitTask() {
+    runningTask.finished = 1;
+    while(1);
+}
 
-void idleTask() { __low_power_mode_0(); }
+void idleTask() { __low_power_mode_0();}
 
 void schedulerStart() {
     registerTask(idleTask, MAX_NICENESS, 1);
 
     uint8_t n = 0;
-    for (n = 0; n < MAX_NICENESS; ++n) {
+    for (n = 0; n <= MAX_NICENESS; n++) {
         if (fifoList[n].size > 0) {
             fifoPop(n, &runningTask);
+            break;
         }
     }
 
@@ -69,16 +78,16 @@ void schedulerStart() {
 void scheduler() {
     static uint8_t quantum;
     if (quantum-- > 0) return;
-
-    fifoPut(runningTask, runningTask.niceness);
-
+    if (!runningTask.finished){
+        fifoPut(runningTask, runningTask.niceness);
+    }
     uint8_t n = 0;
-    for (n = 0; n < MAX_NICENESS; ++n) {
+    for (n = 0; n <= MAX_NICENESS; n++) {
         if (fifoList[n].size > 0) {
             fifoPop(n, &runningTask);
+            break;
         }
     }
-
     quantum = runningTask.quantum;
 
     return;
@@ -91,7 +100,6 @@ wdt_isr() {
 
     // restore scheduler stack pointer
     asm("movx.a %0, SP" ::"m"(schedStackPtr));
-
     scheduler();
 
     // save scheduler stack pointer
@@ -117,8 +125,7 @@ void registerTask(void (*pTask)(), uint8_t niceness, uint8_t quantum) {
     newTask.finished = 0;
     newTask.niceness = niceness;
 
-    newTask.stackPtr =
-        (uint16_t *)(0x3280 + (fifo->size) * 0x80 + niceness * 0x80);
+    newTask.stackPtr = (uint16_t *)(0x3280 + newTask.pid * 0x80);
     *(--newTask.stackPtr) = (uint16_t *)pTask;
     *(--newTask.stackPtr) = GIE | (((uint32_t)pTask >> 4) & 0xF000);
     int i;
